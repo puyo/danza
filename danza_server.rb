@@ -181,11 +181,12 @@ module Danza
     def at?(x, y)
       @x == x && @y == y
     end
-
   end
 
   class Stairs < GameObject
-    # don't do anything
+    def to_json(opts = {})
+      { type: 'stairs', x: x, y: y }.to_json(opts)
+    end
   end
 
   class Player < GameObject
@@ -199,6 +200,10 @@ module Danza
     def move(state)
       # TODO: call function supplied by client
     end
+
+    def to_json(opts = {})
+      { type: 'player', name: name, x: x, y: y }.to_json(opts)
+    end
   end
 
   class Monster < GameObject
@@ -209,6 +214,10 @@ module Danza
         return
       end
       @y = new_y
+    end
+
+    def to_json(opts = {})
+      { type: 'monster', x: x, y: y }.to_json(opts)
     end
   end
 
@@ -260,6 +269,7 @@ module Danza
     def advance
       @beat += 1
       detect_collisions
+      puts to_json
     end
 
     def on_board?(x, y)
@@ -269,7 +279,7 @@ module Danza
         y < @height
     end
 
-    def to_client_json
+    def to_json(opts = {})
       {
         width: @width,
         height: @height,
@@ -277,7 +287,7 @@ module Danza
         players: @players,
         monsters: @monsters,
         stairs: @stairs,
-      }.to_json
+      }.to_json(opts)
     end
 
     def detect_collisions
