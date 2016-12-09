@@ -113,9 +113,9 @@ module Danza
 
     def init_sprites
       @sprites = {}
-      @sprites['player'] = load_sprite_by_name('player')
-      @sprites['zombie'] = load_sprite_by_name('zombie')
-      @sprites['stairs'] = load_sprite_by_name('stairs')
+      %w(player zombie stairs).each do |name|
+        @sprites[name] = load_sprite_by_name(name)
+      end
     end
 
     def init_song
