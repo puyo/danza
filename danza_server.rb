@@ -5,7 +5,7 @@ require './gosu_ext'
 
 module Danza
 
-  class Actor
+  class GameObject
     attr_reader :x, :y
 
     def initialize
@@ -17,15 +17,34 @@ module Danza
       @x = x
       @y = y
     end
+
+    def move(state)
+      # no-op
+    end
+
+    def is_at?(x, y)
+      @x == x && @y == y
+    end
   end
 
-  class Stairs < Actor
+  class Stairs < GameObject
+    # don't do anything
   end
 
-  class Player < Actor
+  class Player < GameObject
+    def move(state)
+      # TODO: call function supplied by client
+    end
   end
 
-  class Monster < Actor
+  class Monster < GameObject
+    def move(state)
+      d = (state.beat % 2) * 2 - 1 # -1 or +1 based on beat
+      new_y = y + d
+      if new_y < state.width && !state.actor_at(x, new_y).is_a?(Monster)
+        @y = new_y
+      end
+    end
   end
 
   # Game state that can be marshalled and sent to clients
@@ -54,6 +73,10 @@ module Danza
       @stairs.set_position(*positions.pop)
     end
 
+    def actor_at(x, y)
+      (@players + @monsters + [@stairs]).find { |a| a.is_at?(x, y) }
+    end
+
     def randomised_positions
       positions = []
       @height.times do |y|
@@ -66,6 +89,11 @@ module Danza
 
     def advance
       @beat += 1
+      detect_collisions
+    end
+
+    def detect_collisions
+      # TODO
     end
   end
 
@@ -84,11 +112,10 @@ module Danza
 
     private
 
-    COL_NO = 0xc0_ff0000
-    COL_YES = 0xff_00ff00
-    COL_HL = 0xff_ffffff
-    COL_NORMAL = 0x50_ffffff
-    COL_LETTER = 0xff_ffff00
+    COL_BEATS = [
+      0xc0_0000ff,
+      0xff_ff0000
+    ].freeze
     COL_BLACK = 0xff_000000
 
     LAYER_BG = 0
@@ -123,7 +150,8 @@ module Danza
       @song_name = 'music'
       @song = Gosu::Song.new(self, @song_name + '.ogg')
       @song_info = YAML.load_file(@song_name + '.yml')
-      @bpm = @song_info['bpm'] / 1.0
+      @advance_every_n_beats = 1
+      @bpm = @song_info['bpm'].to_f / @advance_every_n_beats
       @interval = 60.0 / @bpm
       @song.play
     end
@@ -136,7 +164,7 @@ module Danza
     end
 
     def draw_tiles
-      col = @state.beat.even? ? COL_YES : COL_NO
+      col = COL_BEATS[@state.beat % COL_BEATS.size]
       @state.height.times do |y|
         @state.width.times do |x|
           if ((x + y) % 2) == (@state.beat % 2)
@@ -180,9 +208,22 @@ module Danza
       img.draw(cx, cy, LAYER_PLAYERS)
     end
 
-    def update
+    def actors
+      @state.players + @state.monsters
+    end
+
+    def at_most_every_interval
       if Time.now.to_f > (@t0 + @interval)
         @t0 = Time.now.to_f
+        yield
+      end
+    end
+
+    def update
+      at_most_every_interval do
+        actors.each do |actor|
+          actor.move(@state)
+        end
         @state.advance
       end
     end
