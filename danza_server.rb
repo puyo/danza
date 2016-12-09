@@ -1,11 +1,82 @@
-require 'drb'
 require 'gosu'
-require 'yaml'
 require './gosu_ext'
+require 'yaml'
 require 'json'
+require 'socket'
+require 'monitor'
 
 module Danza
-  URI = 'druby://localhost:8787'.freeze
+  class Server
+    def initialize(state)
+      @state = state
+      @lock = Monitor.new
+    end
+
+    def on_connect(state, socket)
+      puts 'Connection detected'
+      name = get_name(socket)
+      puts "Client connected: #{name}"
+
+      if @state.players.find { |player| player.name == name }
+        puts 'That name is already taken'
+        socket.puts 'That name is already taken'
+        socket.close
+        return
+      end
+
+      #@lock.synchronize do
+        puts "Adding player #{name}"
+        p @state.free_position
+        new_player = Player.new(
+          name: name,
+          socket: socket,
+          position: @state.free_position
+        )
+        puts "Created new player"
+        @state.add_player(new_player)
+      #end
+
+      loop do
+        move = socket.gets
+
+        if move.nil? # disconnected
+          @lock.synchronize do
+            player = @state.players.find { |player| player.socket == socket }
+            @state.remove_player(player)
+          end
+          socket.close
+          return
+        end
+
+        @lock.synchronize do
+          @state.set_move(player: player, move: move)
+        end
+      end
+    end
+
+    def on_disconnect(socket)
+      socket.close
+    end
+
+    def get_name(socket)
+      socket.puts 'To get started, please send me your name (a string followed by a new line character)'
+      socket.gets
+    end
+
+    def start
+      @server_thread = Thread.start do
+        Thread.current.abort_on_exception = true
+        @server = TCPServer.new 8787
+        puts 'Server listening on 8787'
+        loop do
+          Thread.start(@server.accept, @state) do |socket, state|
+            Thread.current.abort_on_exception = true
+            on_connect(state, socket)
+          end
+        end
+      end
+    end
+  end
 
   class Window < Gosu::Window
     include GosuExt
@@ -44,11 +115,8 @@ module Danza
     end
 
     def init_server
-      # $SAFE = 1 is a DRb recommendation, but must be done after loading assets
-      # from file system
-      $SAFE = 1
-      @server = Danza::Server.new
-      DRb.start_service(Danza::URI, @server)
+      @server = Server.new(@state)
+      @server.start
     end
 
     def load_sprite_by_name(name)
@@ -89,17 +157,9 @@ module Danza
       COLOR_BEATS[@state.beat % COLOR_BEATS.size]
     end
 
-    def each_tile
-      @state.height.times do |y|
-        @state.width.times do |x|
-          yield x, y
-        end
-      end
-    end
-
     def draw_tiles
       color = tile_color
-      each_tile do |x, y|
+      @state.positions.each do |x, y|
         next if color_tile?(x, y)
         draw_rect(
           x * @tile_size,
@@ -139,7 +199,7 @@ module Danza
       img.draw(cx, cy, LAYER_PLAYERS)
     end
 
-    def actors
+    def game_objects
       @state.players + @state.monsters
     end
 
@@ -151,8 +211,8 @@ module Danza
 
     def update
       at_most_every_interval do
-        actors.each do |actor|
-          actor.move(@state)
+        game_objects.each do |game_object|
+          game_object.move(@state)
         end
         @state.advance
       end
@@ -191,10 +251,12 @@ module Danza
 
   class Player < GameObject
     attr_reader :name
+    attr_reader :socket
 
-    def initialize(name:, position:)
+    def initialize(name:, position:, socket:)
       super(position: position)
       @name = name
+      @socket = socket
     end
 
     def move(state)
@@ -210,7 +272,7 @@ module Danza
     def move(state)
       diff = (state.beat % 2) * 2 - 1 # -1 or +1 based on beat
       new_y = y + diff
-      if !state.on_board?(x, new_y) || state.actor_is?(x, new_y, Monster)
+      if !state.on_board?(x, new_y) || state.game_object_is?(x, new_y, Monster)
         return
       end
       @y = new_y
@@ -234,42 +296,58 @@ module Danza
       @width = 8
       @height = 6
       @beat = 0
-      positions = randomised_positions
-      @players = [
-        Player.new(name: 'Alice', position: positions.pop),
-        Player.new(name: 'Bob', position: positions.pop),
-      ]
-      @monsters = [
-        Monster.new(position: positions.pop),
-        Monster.new(position: positions.pop),
-      ]
-      @stairs = [
-        Stairs.new(position: positions.pop)
-      ]
+      @players = []
+      @monsters = []
+      @stairs = []
+      # @players = [
+      #   Player.new(name: 'Alice', position: free_position),
+      #   Player.new(name: 'Bob', position: free_position),
+      # ]
+      @monsters = Array.new(3) { Monster.new(position: free_position) }
+      @stairs = Array.new(1) { Stairs.new(position: free_position) }
     end
 
-    def actor_at(x, y)
-      (@players + @monsters + @stairs).find { |a| a.at?(x, y) }
+    def remove_player(player)
+      @players.delete(player)
     end
 
-    def actor_is?(x, y, type)
-      actor_at(x, y).is_a?(type)
+    def add_player(player)
+      @players << player
+    end
+
+    def positions
+      Enumerator.new do |e|
+        @height.times do |y|
+          @width.times do |x|
+            e << [x, y]
+          end
+        end
+      end
+    end
+
+    def game_objects
+      @players + @monsters + @stairs
+    end
+
+    def game_object_at(x, y)
+      game_objects.find { |a| a.at?(x, y) }
+    end
+
+    def game_object_is?(x, y, type)
+      game_object_at(x, y).is_a?(type)
     end
 
     def randomised_positions
-      positions = []
-      @height.times do |y|
-        @width.times do |x|
-          positions << [x, y]
-        end
-      end
-      positions.shuffle!
+      positions.to_a.shuffle
+    end
+
+    def free_position
+      (randomised_positions - game_objects.map { |o| [o.x, o.y] }).first
     end
 
     def advance
       @beat += 1
       detect_collisions
-      puts to_json
     end
 
     def on_board?(x, y)
@@ -295,31 +373,9 @@ module Danza
     end
   end
 
-  # Some thing
-  class Server
-    def initialize
-      @actor_move_functions = {}
-    end
-
-    def set_actor_logic(name, &block)
-      p actor: name
-      @actor_move_functions[name] = block
-    end
-
-    def all_steps
-      @actor_move_functions.values.each do |block|
-        move = block.call({ input: 100 })
-        p move: move
-      end
-    end
-  end
-
   def self.start
     window = Danza::Window.new
     window.show
-    # Commented because Gosu blocks and once we close the window, we're done
-    # anyway so don't bother waiting
-    #DRb.thread.join
   end
 end
 

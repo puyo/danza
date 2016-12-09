@@ -1,22 +1,20 @@
-require 'drb/drb'
+require 'socket'
+require 'json'
 
-# The URI to connect to
-SERVER_URI = 'druby://localhost:8787'.freeze
+s = TCPSocket.new 'localhost', 8787
+instructions = s.gets
+s.puts ARGV[0] || 'Alice'
 
-# Start a local DRbServer to handle callbacks.
-#
-# Not necessary for this small example, but will be required
-# as soon as we pass a non-marshallable object as an argument
-# to a dRuby call.
-#
-# Note: this must be called at least once per process to take any effect.
-# This is particularly important if your application forks.
-DRb.start_service
-
-gameserver = DRbObject.new_with_uri(SERVER_URI)
-
-gameserver.set_actor_logic('greg') do |input|
-  p input: input
-  { move: 'down' }
+loop do
+  line = s.gets
+  break if line.nil?
+  state = line.to_json
+  direction = %w(up down left right).sample
+  response = {
+    move: direction,
+    beat: state.beat,
+  }.to_json
+  s.puts response
 end
 
+s.close
