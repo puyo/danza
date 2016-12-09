@@ -2,121 +2,31 @@ require 'drb'
 require 'gosu'
 require 'yaml'
 require './gosu_ext'
+require 'json'
 
 module Danza
+  URI = 'druby://localhost:8787'.freeze
 
-  class GameObject
-    attr_reader :x, :y
-
-    def initialize
-      @x = 0
-      @y = 0
-    end
-
-    def set_position(x, y)
-      @x = x
-      @y = y
-    end
-
-    def move(state)
-      # no-op
-    end
-
-    def is_at?(x, y)
-      @x == x && @y == y
-    end
-  end
-
-  class Stairs < GameObject
-    # don't do anything
-  end
-
-  class Player < GameObject
-    def move(state)
-      # TODO: call function supplied by client
-    end
-  end
-
-  class Monster < GameObject
-    def move(state)
-      d = (state.beat % 2) * 2 - 1 # -1 or +1 based on beat
-      new_y = y + d
-      if new_y < state.width && !state.actor_at(x, new_y).is_a?(Monster)
-        @y = new_y
-      end
-    end
-  end
-
-  # Game state that can be marshalled and sent to clients
-  class State
-    attr_reader :width
-    attr_reader :height
-    attr_reader :beat
-    attr_reader :players
-    attr_reader :monsters
-    attr_reader :stairs
-
-    def initialize
-      @width = 8
-      @height = 6
-      @beat = 0
-      positions = randomised_positions
-      @players = [Player.new, Player.new]
-      @players.each do |player|
-        player.set_position(*positions.pop)
-      end
-      @monsters = [Monster.new, Monster.new]
-      @monsters.each do |monster|
-        monster.set_position(*positions.pop)
-      end
-      @stairs = Stairs.new
-      @stairs.set_position(*positions.pop)
-    end
-
-    def actor_at(x, y)
-      (@players + @monsters + [@stairs]).find { |a| a.is_at?(x, y) }
-    end
-
-    def randomised_positions
-      positions = []
-      @height.times do |y|
-        @width.times do |x|
-          positions << [x, y]
-        end
-      end
-      positions.shuffle!
-    end
-
-    def advance
-      @beat += 1
-      detect_collisions
-    end
-
-    def detect_collisions
-      # TODO
-    end
-  end
-
-  # Top level window
   class Window < Gosu::Window
     include GosuExt
 
-    def initialize
-      super 1024, 768, fullscreen = false
+    def initialize(fullscreen: false)
+      super 1024, 768, fullscreen
       self.caption = 'Danza'
       init_state
       init_tiles
       init_song
       init_sprites
+      init_server
     end
 
     private
 
-    COL_BEATS = [
+    COLOR_BEATS = [
       0xc0_0000ff,
       0xff_ff0000
     ].freeze
-    COL_BLACK = 0xff_000000
+    COLOR_BLACK = 0xff_000000
 
     LAYER_BG = 0
     LAYER_PLAYERS = 1
@@ -131,6 +41,14 @@ module Danza
 
     def init_tiles
       @tile_size = 128
+    end
+
+    def init_server
+      # $SAFE = 1 is a DRb recommendation, but must be done after loading assets
+      # from file system
+      $SAFE = 1
+      @server = Danza::Server.new
+      DRb.start_service(Danza::URI, @server)
     end
 
     def load_sprite_by_name(name)
@@ -163,22 +81,34 @@ module Danza
       draw_stairs
     end
 
-    def draw_tiles
-      col = COL_BEATS[@state.beat % COL_BEATS.size]
+    def color_tile?(x, y)
+      ((x + y) % 2) == (@state.beat % 2)
+    end
+
+    def tile_color
+      COLOR_BEATS[@state.beat % COLOR_BEATS.size]
+    end
+
+    def each_tile
       @state.height.times do |y|
         @state.width.times do |x|
-          if ((x + y) % 2) == (@state.beat % 2)
-            next
-          end
-          draw_rect(
-            x * @tile_size,
-            y * @tile_size,
-            @tile_size - 1,
-            @tile_size - 1,
-            col,
-            LAYER_BG
-          )
+          yield x, y
         end
+      end
+    end
+
+    def draw_tiles
+      color = tile_color
+      each_tile do |x, y|
+        next if color_tile?(x, y)
+        draw_rect(
+          x * @tile_size,
+          y * @tile_size,
+          @tile_size - 1,
+          @tile_size - 1,
+          color,
+          LAYER_BG
+        )
       end
     end
 
@@ -197,9 +127,10 @@ module Danza
     end
 
     def draw_stairs
-      stairs = @state.stairs
       sprite = @sprites['stairs'][0]
-      draw_sprite_on_tile(sprite, stairs.x, stairs.y)
+      @state.stairs.each do |stairs|
+        draw_sprite_on_tile(sprite, stairs.x, stairs.y)
+      end
     end
 
     def draw_sprite_on_tile(img, x, y)
@@ -213,10 +144,9 @@ module Danza
     end
 
     def at_most_every_interval
-      if Time.now.to_f > (@t0 + @interval)
-        @t0 = Time.now.to_f
-        yield
-      end
+      return if Time.now.to_f < (@t0 + @interval)
+      @t0 = Time.now.to_f
+      yield
     end
 
     def update
@@ -236,8 +166,124 @@ module Danza
     end
   end
 
-  # listen address
-  URI = 'druby://localhost:8787'.freeze
+  class GameObject
+    attr_reader :x, :y
+
+    def initialize(position:)
+      @x = position[0]
+      @y = position[1]
+    end
+
+    def move(state)
+      # no-op
+    end
+
+    def at?(x, y)
+      @x == x && @y == y
+    end
+
+  end
+
+  class Stairs < GameObject
+    # don't do anything
+  end
+
+  class Player < GameObject
+    attr_reader :name
+
+    def initialize(name:, position:)
+      super(position: position)
+      @name = name
+    end
+
+    def move(state)
+      # TODO: call function supplied by client
+    end
+  end
+
+  class Monster < GameObject
+    def move(state)
+      diff = (state.beat % 2) * 2 - 1 # -1 or +1 based on beat
+      new_y = y + diff
+      if !state.on_board?(x, new_y) || state.actor_is?(x, new_y, Monster)
+        return
+      end
+      @y = new_y
+    end
+  end
+
+  # Game state that can be marshalled and sent to clients
+  class State
+    attr_reader :width
+    attr_reader :height
+    attr_reader :beat
+    attr_reader :players
+    attr_reader :monsters
+    attr_reader :stairs
+
+    def initialize
+      @width = 8
+      @height = 6
+      @beat = 0
+      positions = randomised_positions
+      @players = [
+        Player.new(name: 'Alice', position: positions.pop),
+        Player.new(name: 'Bob', position: positions.pop),
+      ]
+      @monsters = [
+        Monster.new(position: positions.pop),
+        Monster.new(position: positions.pop),
+      ]
+      @stairs = [
+        Stairs.new(position: positions.pop)
+      ]
+    end
+
+    def actor_at(x, y)
+      (@players + @monsters + @stairs).find { |a| a.at?(x, y) }
+    end
+
+    def actor_is?(x, y, type)
+      actor_at(x, y).is_a?(type)
+    end
+
+    def randomised_positions
+      positions = []
+      @height.times do |y|
+        @width.times do |x|
+          positions << [x, y]
+        end
+      end
+      positions.shuffle!
+    end
+
+    def advance
+      @beat += 1
+      detect_collisions
+    end
+
+    def on_board?(x, y)
+      x >= 0 &&
+        x < @width &&
+        y >= 0 &&
+        y < @height
+    end
+
+    def to_client_json
+      {
+        width: @width,
+        height: @height,
+        beat: @beat,
+        players: @players,
+        monsters: @monsters,
+        stairs: @stairs,
+      }.to_json
+    end
+
+    def detect_collisions
+      # TODO
+    end
+  end
 
   # Some thing
   class Server
@@ -258,26 +304,13 @@ module Danza
     end
   end
 
-  def self.start_game_server
-    server = Danza::Server.new
-    DRb.start_service(Danza::URI, server)
-  end
-
-  def self.open_window
-    window = Danza::Window.new
-
-
-    $SAFE = 1 # DRb recommendation
-
-    window.show
-  end
-
   def self.start
-    start_game_server
-    open_window
+    window = Danza::Window.new
+    window.show
+    # Commented because Gosu blocks and once we close the window, we're done
+    # anyway so don't bother waiting
     #DRb.thread.join
   end
 end
 
 Danza.start
-

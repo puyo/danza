@@ -17,6 +17,6 @@ gameserver = DRbObject.new_with_uri(SERVER_URI)
 
 gameserver.set_actor_logic('greg') do |input|
   p input: input
-  { move: 1 }
+  { move: 'down' }
 end
 
