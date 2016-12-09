@@ -8,11 +8,13 @@ s.puts ARGV[0] || 'Alice'
 loop do
   line = s.gets
   break if line.nil?
-  state = line.to_json
-  direction = %w(up down left right).sample
+  state = JSON.parse(line)
+  print state['beat'], ': '
+  p state
+  direction = %w(up down left right stay).sample
   response = {
-    move: direction,
-    beat: state.beat,
+    direction: direction,
+    beat: state['beat'],
   }.to_json
   s.puts response
 end

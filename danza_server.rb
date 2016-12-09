@@ -24,32 +24,32 @@ module Danza
         return
       end
 
-      #@lock.synchronize do
+      player = nil
+      @lock.synchronize do
         puts "Adding player #{name}"
-        p @state.free_position
-        new_player = Player.new(
+        player = Player.new(
           name: name,
           socket: socket,
           position: @state.free_position
         )
-        puts "Created new player"
-        @state.add_player(new_player)
-      #end
+        @state.add_player(player)
+      end
 
       loop do
-        move = socket.gets
+        move_str = socket.gets
 
-        if move.nil? # disconnected
+        if move_str.nil? # disconnected
           @lock.synchronize do
-            player = @state.players.find { |player| player.socket == socket }
             @state.remove_player(player)
           end
           socket.close
           return
         end
 
+        move = JSON.parse(move_str)
+
         @lock.synchronize do
-          @state.set_move(player: player, move: move)
+          player.set_move(move)
         end
       end
     end
@@ -60,7 +60,7 @@ module Danza
 
     def get_name(socket)
       socket.puts 'To get started, please send me your name (a string followed by a new line character)'
-      socket.gets
+      socket.gets.chomp
     end
 
     def start
@@ -85,6 +85,7 @@ module Danza
       super 1024, 768, fullscreen
       self.caption = 'Danza'
       init_state
+      init_font
       init_tiles
       init_song
       init_sprites
@@ -100,7 +101,7 @@ module Danza
     COLOR_BLACK = 0xff_000000
 
     LAYER_BG = 0
-    LAYER_PLAYERS = 1
+    LAYER_SPRITES = 1
 
     def init_state
       @state = State.new
@@ -136,7 +137,7 @@ module Danza
       @song_name = 'music'
       @song = Gosu::Song.new(self, @song_name + '.ogg')
       @song_info = YAML.load_file(@song_name + '.yml')
-      @advance_every_n_beats = 1
+      @advance_every_n_beats = (ARGV[0] || 1).to_f
       @bpm = @song_info['bpm'].to_f / @advance_every_n_beats
       @interval = 60.0 / @bpm
       @song.play
@@ -176,7 +177,14 @@ module Danza
       sprite = @sprites['player'][@state.beat % 2]
       @state.players.each do |player|
         draw_sprite_on_tile(sprite, player.x, player.y)
+        draw_sprite_label(player.x, player.y, label: player.name)
       end
+    end
+
+    def draw_sprite_label(x, y, label:)
+      lx = x * @tile_size + (@tile_size / 2 - @font.text_width(label) / 2)
+      ly = (y + 1) * @tile_size - @font.height
+      @font.draw(label, lx, ly, LAYER_SPRITES)
     end
 
     def draw_monsters
@@ -196,7 +204,7 @@ module Danza
     def draw_sprite_on_tile(img, x, y)
       cx = x * @tile_size + (@tile_size / 2 - img.width / 2)
       cy = y * @tile_size + (@tile_size / 2 - img.height / 2)
-      img.draw(cx, cy, LAYER_PLAYERS)
+      img.draw(cx, cy, LAYER_SPRITES)
     end
 
     def game_objects
@@ -215,6 +223,13 @@ module Danza
           game_object.move(@state)
         end
         @state.advance
+        send_state_to_players
+      end
+    end
+
+    def send_state_to_players
+      @state.players.each do |player|
+        player.send_state(@state)
       end
     end
 
@@ -241,6 +256,17 @@ module Danza
     def at?(x, y)
       @x == x && @y == y
     end
+
+    def move_by(state, dx, dy)
+      p 'moving'
+      new_x = @x + dx
+      new_y = @y + dy
+      if !state.on_board?(new_x, new_y)
+        return
+      end
+      @x = new_x
+      @y = new_y
+    end
   end
 
   class Stairs < GameObject
@@ -259,8 +285,38 @@ module Danza
       @socket = socket
     end
 
+    def send_state(state)
+      socket.puts(state.to_json)
+    end
+
+    def set_move(move)
+      @move = move
+    end
+
+    DIRECTION_DELTAS = {
+      'up' => [0, -1],
+      'down' => [0, +1],
+      'left' => [-1, 0],
+      'right' => [+1, 0],
+    }
+    DIRECTION_DELTAS.default = [0, 0]
+
     def move(state)
-      # TODO: call function supplied by client
+      # consume @move and update position
+      return if @move.nil?
+      begin
+        if @move['beat'] != state.beat
+          puts "This move is for beat #{@move['beat']} not #{state.beat}, too slow?"
+          return
+        end
+        direction = @move['direction']
+        delta = DIRECTION_DELTAS[direction]
+        move_by(state, delta[0], delta[1])
+      rescue RuntimeError => e
+        puts e
+        # it's okay, stand still
+      end
+      @move = nil
     end
 
     def to_json(opts = {})
