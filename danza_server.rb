@@ -90,6 +90,7 @@ module Danza
       init_tiles
       init_song
       init_sprites
+      init_sounds
       init_server
     end
 
@@ -105,10 +106,36 @@ module Danza
     LAYER_SPRITES = 1
 
     MUSIC_DIR = __dir__ + '/music/'
-    SPRITE_DIR = __dir__ + '/sprites/'
+    SPRITES_DIR = __dir__ + '/sprites/'
+    SOUNDS_DIR = __dir__ + '/sounds/'
 
     def init_state
-      @state = State.new
+      @state = State.new(
+        on_collision: -> (actor:, target:) {
+          case [actor.class, target.class]
+          when [Player, Player] # pvp
+            puts "#{actor.name} attacked #{target.name}"
+            actor.score += 1
+            target.score -= 1
+            @sounds['hit'].play
+          when [Player, Monster] # player killed a monster
+            puts "#{actor.name} attacked a monster"
+            actor.score += 1
+            target.set_position(@state.free_position)
+            @sounds['coin'].play
+          when [Monster, Player] # monster killed a player
+            puts "#{target.name} was attacked by a monster"
+            target.score -= 1
+            #target.set_position(free_position)
+            @sounds['hit'].play
+          when [Player, Stairs] # player gets points, stairs move
+            puts "#{actor.name} found the stairs"
+            actor.score += 3
+            target.set_position(@state.free_position)
+            @sounds['stairs'].play
+          end
+        }
+      )
     end
 
     def init_font
@@ -125,14 +152,26 @@ module Danza
     end
 
     def load_sprite_by_name(name)
-      paths = Dir.glob(SPRITE_DIR + name + '*.png')
+      paths = Dir.glob(SPRITES_DIR + name + '*.png')
       paths.map { |path| Gosu::Image.new(path) }
+    end
+
+    def load_sound_by_name(name)
+      path = SOUNDS_DIR + name + '.wav'
+      Gosu::Sample.new(path)
     end
 
     def init_sprites
       @sprites = {}
       %w(player zombie stairs).each do |name|
         @sprites[name] = load_sprite_by_name(name)
+      end
+    end
+
+    def init_sounds
+      @sounds = {}
+      %w(coin hit stairs).each do |name|
+        @sounds[name] = load_sound_by_name(name)
       end
     end
 
@@ -385,7 +424,7 @@ module Danza
     end
   end
 
-  # Game state that can be marshalled and sent to clients
+  # Game state that can be sent to clients
   class State
     attr_reader :width
     attr_reader :height
@@ -394,17 +433,14 @@ module Danza
     attr_reader :monsters
     attr_reader :stairs
 
-    def initialize
+    def initialize(on_collision: -> {})
+      @on_collision = on_collision
       @width = 8
       @height = 6
       @beat = 0
       @players = []
       @monsters = []
       @stairs = []
-      # @players = [
-      #   Player.new(name: 'Alice', position: free_position),
-      #   Player.new(name: 'Bob', position: free_position),
-      # ]
       @monsters = Array.new(3) { Monster.new(position: free_position) }
       @stairs = Array.new(1) { Stairs.new(position: free_position) }
     end
@@ -428,22 +464,7 @@ module Danza
     end
 
     def on_collision(actor:, target:)
-      case [actor.class, target.class]
-      when [Player, Player] # pvp
-        p 'pvp'
-        actor.score += 1
-        target.score -= 1
-      when [Player, Monster] # player killed a monster
-        p 'player attacked a monster'
-        actor.score += 1
-        target.set_position(free_position)
-      when [Monster, Player] # monster killed a player
-        target.score -= 1
-        #target.set_position(free_position)
-      when [Player, Stairs] # player gets points, stairs move
-        actor.score += 10
-        target.set_position(free_position)
-      end
+      @on_collision.call(actor: actor, target: target)
     end
 
     def game_objects
