@@ -184,6 +184,7 @@ module Danza
     end
 
     def draw_sprite_intention(x, y, intention:)
+      # TODO: rewrite all this, it's kind of awful
       w = @font.text_width('W')
       iw = @font.text_width(intention)
       h = @font.height
@@ -468,7 +469,6 @@ module Danza
 
     def advance
       @beat += 1
-      detect_collisions
     end
 
     def on_board?(x, y)
@@ -487,10 +487,6 @@ module Danza
         monsters: @monsters,
         stairs: @stairs,
       }.to_json(opts)
-    end
-
-    def detect_collisions
-      # TODO
     end
   end
 
