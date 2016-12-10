@@ -12,8 +12,6 @@ loop do
   line = s.gets
   break if line.nil?
   state = JSON.parse(line)
-  print state['beat'], ': '
-  p state
   direction = %w(up down left right stay).sample
   response = {
     direction: direction,

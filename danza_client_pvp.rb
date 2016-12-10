@@ -6,7 +6,7 @@ instructions = s.gets
 puts 'CLIENT INSTRUCTIONS:'
 puts instructions
 puts
-name = ARGV[0] || 'Steppy'
+name = ARGV[0] || 'Hunta'
 s.puts name
 
 loop do
@@ -14,14 +14,14 @@ loop do
   break if line.nil?
   state = JSON.parse(line)
   player = state['players'].find { |p| p['name'] == name }
-  stairs = state['stairs'].first
-  if player['x'] < stairs['x']
+  target = state['players'].find { |p| p['name'] != name }
+  if player['x'] < target['x']
     direction = 'right'
-  elsif player['x'] > stairs['x']
+  elsif player['x'] > target['x']
     direction = 'left'
-  elsif player['y'] > stairs['y']
+  elsif player['y'] > target['y']
     direction = 'up'
-  elsif player['y'] < stairs['y']
+  elsif player['y'] < target['y']
     direction = 'down'
   else
     next
