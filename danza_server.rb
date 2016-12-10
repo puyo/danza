@@ -292,11 +292,7 @@ module Danza
     end
 
     def to_json(opts = {})
-      { type: json_type, x: x, y: y }.to_json(opts)
-    end
-
-    def json_type
-      self.class.to_s
+      { x: x, y: y }.to_json(opts)
     end
 
     def set_move(move)
@@ -373,7 +369,7 @@ module Danza
     end
 
     def to_json(opts = {})
-      { type: json_type, name: name, x: x, y: y }.to_json(opts)
+      { name: name, x: x, y: y }.to_json(opts)
     end
   end
 
