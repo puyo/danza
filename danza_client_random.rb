@@ -6,7 +6,7 @@ instructions = s.gets
 puts 'CLIENT INSTRUCTIONS:'
 puts instructions
 puts
-s.puts ARGV[0] || 'Alice'
+s.puts ARGV[0] || 'Rando'
 
 loop do
   line = s.gets
