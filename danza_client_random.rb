@@ -3,6 +3,9 @@ require 'json'
 
 s = TCPSocket.new 'localhost', 8787
 instructions = s.gets
+puts 'CLIENT INSTRUCTIONS:'
+puts instructions
+puts
 s.puts ARGV[0] || 'Alice'
 
 loop do

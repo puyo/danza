@@ -104,6 +104,9 @@ module Danza
     LAYER_BG = 0
     LAYER_SPRITES = 1
 
+    MUSIC_DIR = __dir__ + '/music/'
+    SPRITE_DIR = __dir__ + '/sprites/'
+
     def init_state
       @state = State.new
     end
@@ -122,7 +125,7 @@ module Danza
     end
 
     def load_sprite_by_name(name)
-      paths = Dir.glob(__dir__ + '/' + name + '*.png')
+      paths = Dir.glob(SPRITE_DIR + name + '*.png')
       paths.map { |path| Gosu::Image.new(path) }
     end
 
@@ -135,9 +138,9 @@ module Danza
 
     def init_song
       @t0 = Time.now.to_f
-      @song_name = 'music'
-      @song = Gosu::Song.new(self, @song_name + '.ogg')
-      @song_info = YAML.load_file(@song_name + '.yml')
+      @song_name = 'track1'
+      @song = Gosu::Song.new(self, MUSIC_DIR + @song_name + '.ogg')
+      @song_info = YAML.load_file(MUSIC_DIR + @song_name + '.yml')
       @advance_every_n_beats = (ARGV[0] || 1).to_f
       @bpm = @song_info['bpm'].to_f / @advance_every_n_beats
       @interval = 60.0 / @bpm
