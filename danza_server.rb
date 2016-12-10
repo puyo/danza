@@ -1,3 +1,4 @@
+# coding: utf-8
 require 'gosu'
 require './gosu_ext'
 require 'yaml'
@@ -59,7 +60,7 @@ module Danza
     end
 
     def get_name(socket)
-      socket.puts 'To get started, please send me your name (a string followed by a new line character)'
+      socket.puts 'To get started, please send me your name (a string followed by a new line character). We will send you the game state as JSON on one line and you have to send us your move as JSON on one line like this: {"direction": "up", "beat": 21} (directions are up, down, left, right, and stay)'
       socket.gets.chomp
     end
 
@@ -95,8 +96,8 @@ module Danza
     private
 
     COLOR_BEATS = [
-      0xc0_0000ff,
-      0xff_ff0000
+      0xff_000080,
+      0xff_400080
     ].freeze
     COLOR_BLACK = 0xff_000000
 
@@ -177,12 +178,26 @@ module Danza
       sprite = @sprites['player'][@state.beat % 2]
       @state.players.each do |player|
         draw_sprite_on_tile(sprite, player.x, player.y)
-        draw_sprite_label(player.x, player.y, label: player.name)
+        draw_sprite_intention(player.x, player.y, intention: player.intention)
+        draw_sprite_label(player.x, player.y, label: player.name + " (#{player.score})")
       end
     end
 
+    def draw_sprite_intention(x, y, intention:)
+      w = @font.text_width('W')
+      iw = @font.text_width(intention)
+      h = @font.height
+      big_r = w + 5
+      small_r = big_r/3
+      lx = x * @tile_size + (@tile_size - iw)
+      ly = y * @tile_size + h
+      draw_circle(lx, ly, w, 0, 0xff_ffffff)
+      draw_circle(lx - 20, ly + 15, w/3, 0, 0xff_ffffff)
+      @font.draw(intention, lx - iw/2, ly - h/2, LAYER_SPRITES + 1, 1, 1, 0xff_000000)
+    end
+
     def draw_sprite_label(x, y, label:)
-      lx = x * @tile_size + (@tile_size / 2 - @font.text_width(label) / 2)
+      lx = x * @tile_size + (@tile_size - @font.text_width(label)) / 2
       ly = (y + 1) * @tile_size - @font.height
       @font.draw(label, lx, ly, LAYER_SPRITES)
     end
@@ -191,6 +206,7 @@ module Danza
       sprite = @sprites['zombie'][@state.beat % 2]
       @state.monsters.each do |monster|
         draw_sprite_on_tile(sprite, monster.x, monster.y)
+        draw_sprite_intention(monster.x, monster.y, intention: monster.intention)
       end
     end
 
@@ -220,9 +236,10 @@ module Danza
     def update
       at_most_every_interval do
         game_objects.each do |game_object|
-          game_object.move(@state)
+          game_object.do_move(@state)
         end
         @state.advance
+        decide_monster_moves
         send_state_to_players
       end
     end
@@ -230,6 +247,12 @@ module Danza
     def send_state_to_players
       @state.players.each do |player|
         player.send_state(@state)
+      end
+    end
+
+    def decide_monster_moves
+      @state.monsters.each do |monster|
+        monster.decide_move(@state)
       end
     end
 
@@ -242,56 +265,14 @@ module Danza
   end
 
   class GameObject
-    attr_reader :x, :y
-
-    def initialize(position:)
-      @x = position[0]
-      @y = position[1]
-    end
-
-    def move(state)
-      # no-op
-    end
-
-    def at?(x, y)
-      @x == x && @y == y
-    end
-
-    def move_by(state, dx, dy)
-      p 'moving'
-      new_x = @x + dx
-      new_y = @y + dy
-      if !state.on_board?(new_x, new_y)
-        return
-      end
-      @x = new_x
-      @y = new_y
-    end
-  end
-
-  class Stairs < GameObject
-    def to_json(opts = {})
-      { type: 'stairs', x: x, y: y }.to_json(opts)
-    end
-  end
-
-  class Player < GameObject
-    attr_reader :name
-    attr_reader :socket
-
-    def initialize(name:, position:, socket:)
-      super(position: position)
-      @name = name
-      @socket = socket
-    end
-
-    def send_state(state)
-      socket.puts(state.to_json)
-    end
-
-    def set_move(move)
-      @move = move
-    end
+    DIRECTION_INTENTIONS = {
+      'up' => '⬆',
+      'down' => '⬇',
+      'left' => '⬅',
+      'right' => '➡',
+      'stay' => ' ',
+    }
+    DIRECTION_INTENTIONS.default = '?'
 
     DIRECTION_DELTAS = {
       'up' => [0, -1],
@@ -301,7 +282,27 @@ module Danza
     }
     DIRECTION_DELTAS.default = [0, 0]
 
-    def move(state)
+    attr_reader :x, :y
+
+    def initialize(position:)
+      @x = position[0]
+      @y = position[1]
+      @move = nil
+    end
+
+    def to_json(opts = {})
+      { type: json_type, x: x, y: y }.to_json(opts)
+    end
+
+    def json_type
+      self.class.to_s
+    end
+
+    def set_move(move)
+      @move = move
+    end
+
+    def do_move(state)
       # consume @move and update position
       return if @move.nil?
       begin
@@ -319,23 +320,68 @@ module Danza
       @move = nil
     end
 
+    def at?(x, y)
+      @x == x && @y == y
+    end
+
+    def set_position(position)
+      @x = position[0]
+      @y = position[1]
+    end
+
+    def move_by(state, dx, dy)
+      new_x = @x + dx
+      new_y = @y + dy
+      if !state.on_board?(new_x, new_y)
+        return
+      end
+      if new_x != x || new_y != y
+        obj = state.game_object_at(new_x, new_y)
+        if obj
+          state.on_collision(actor: self, target: obj)
+          return
+        end
+      end
+      @x = new_x
+      @y = new_y
+    end
+
+    def intention
+      dir = @move && @move['direction']
+      DIRECTION_INTENTIONS[dir]
+    end
+  end
+
+  class Stairs < GameObject
+  end
+
+  class Player < GameObject
+    attr_reader :name
+    attr_reader :socket
+    attr_accessor :score
+
+    def initialize(name:, position:, socket:)
+      super(position: position)
+      @name = name
+      @socket = socket
+      @score = 0
+    end
+
+    def send_state(state)
+      socket.puts(state.to_json)
+    end
+
     def to_json(opts = {})
-      { type: 'player', name: name, x: x, y: y }.to_json(opts)
+      { type: json_type, name: name, x: x, y: y }.to_json(opts)
     end
   end
 
   class Monster < GameObject
-    def move(state)
-      diff = (state.beat % 2) * 2 - 1 # -1 or +1 based on beat
-      new_y = y + diff
-      if !state.on_board?(x, new_y) || state.game_object_is?(x, new_y, Monster)
-        return
-      end
-      @y = new_y
-    end
-
-    def to_json(opts = {})
-      { type: 'monster', x: x, y: y }.to_json(opts)
+    def decide_move(state)
+      @move = case state.beat % 2
+              when 0 then { 'direction' => 'up', 'beat' => state.beat }
+              when 1 then { 'direction' => 'down', 'beat' => state.beat }
+              end
     end
   end
 
@@ -378,6 +424,25 @@ module Danza
             e << [x, y]
           end
         end
+      end
+    end
+
+    def on_collision(actor:, target:)
+      case [actor.class, target.class]
+      when [Player, Player] # pvp
+        p 'pvp'
+        actor.score += 1
+        target.score -= 1
+      when [Player, Monster] # player killed a monster
+        p 'player attacked a monster'
+        actor.score += 1
+        target.set_position(free_position)
+      when [Monster, Player] # monster killed a player
+        target.score -= 1
+        #target.set_position(free_position)
+      when [Player, Stairs] # player gets points, stairs move
+        actor.score += 10
+        target.set_position(free_position)
       end
     end
 
