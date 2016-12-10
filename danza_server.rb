@@ -183,10 +183,10 @@ module Danza
 
     def init_song
       @t0 = Time.now.to_f
-      @song_name = 'track1'
+      @song_name = ARGV.shift || 'track1'
       @song = Gosu::Song.new(self, MUSIC_DIR + @song_name + '.ogg')
       @song_info = YAML.load_file(MUSIC_DIR + @song_name + '.yml')
-      @advance_every_n_beats = (ARGV[0] || 1).to_f
+      @advance_every_n_beats = (ARGV.shift || 1).to_f
       @bpm = @song_info['bpm'].to_f / @advance_every_n_beats
       @interval = 60.0 / @bpm
       @song.play
