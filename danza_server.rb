@@ -211,7 +211,7 @@ module Danza
     end
 
     def draw_stairs
-      sprite = @sprites['stairs'][0]
+      sprite = @sprites['stairs'][@state.beat % 2]
       @state.stairs.each do |stairs|
         draw_sprite_on_tile(sprite, stairs.x, stairs.y)
       end
