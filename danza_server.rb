@@ -123,6 +123,7 @@ module Danza
             puts "#{actor.name} attacked #{target.name}"
             actor.score += POINTS_FOR_PVP_WIN
             target.score += POINTS_FOR_PVP_LOSS
+            target.set_position(@state.free_position)
             @sounds['hit'].play
           when [Player, Monster] # player killed a monster
             puts "#{actor.name} attacked a monster"
