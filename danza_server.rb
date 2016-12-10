@@ -109,28 +109,34 @@ module Danza
     SPRITES_DIR = __dir__ + '/sprites/'
     SOUNDS_DIR = __dir__ + '/sounds/'
 
+    POINTS_FOR_MONSTER_WIN = 1
+    POINTS_FOR_MONSTER_LOSS = 1
+    POINTS_FOR_PVP_WIN = 2
+    POINTS_FOR_PVP_LOSS = -2
+    POINTS_FOR_STAIRS = 3
+
     def init_state
       @state = State.new(
         on_collision: -> (actor:, target:) {
           case [actor.class, target.class]
           when [Player, Player] # pvp
             puts "#{actor.name} attacked #{target.name}"
-            actor.score += 1
-            target.score -= 1
+            actor.score += POINTS_FOR_PVP_WIN
+            target.score += POINTS_FOR_PVP_LOSS
             @sounds['hit'].play
           when [Player, Monster] # player killed a monster
             puts "#{actor.name} attacked a monster"
-            actor.score += 1
+            actor.score += POINTS_FOR_MONSTER_WIN
             target.set_position(@state.free_position)
             @sounds['coin'].play
           when [Monster, Player] # monster killed a player
             puts "#{target.name} was attacked by a monster"
-            target.score -= 1
+            target.score += POINTS_FOR_MONSTER_LOSS
             #target.set_position(free_position)
             @sounds['hit'].play
           when [Player, Stairs] # player gets points, stairs move
             puts "#{actor.name} found the stairs"
-            actor.score += 3
+            actor.score += POINTS_FOR_STAIRS
             target.set_position(@state.free_position)
             @sounds['stairs'].play
           end
