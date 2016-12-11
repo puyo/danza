@@ -12,11 +12,13 @@ loop do
   line = s.gets
   break if line.nil?
   state = JSON.parse(line)
+  p state
   direction = %w(up down left right stay).sample
   response = {
     direction: direction,
     beat: state['beat'],
   }.to_json
+  p response
   s.puts response
 end
 

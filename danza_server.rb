@@ -113,7 +113,7 @@ module Danza
     POINTS_FOR_MONSTER_LOSS = 1
     POINTS_FOR_PVP_WIN = 2
     POINTS_FOR_PVP_LOSS = -2
-    POINTS_FOR_STAIRS = 3
+    POINTS_FOR_COINS = 3
 
     def init_state
       @state = State.new(
@@ -129,17 +129,17 @@ module Danza
             puts "#{actor.name} attacked a monster"
             actor.score += POINTS_FOR_MONSTER_WIN
             target.set_position(@state.free_position)
-            @sounds['coin'].play
+            @sounds['powerup'].play
           when [Monster, Player] # monster killed a player
             puts "#{target.name} was attacked by a monster"
             target.score += POINTS_FOR_MONSTER_LOSS
             #target.set_position(free_position)
             @sounds['hit'].play
-          when [Player, Stairs] # player gets points, stairs move
-            puts "#{actor.name} found the stairs"
-            actor.score += POINTS_FOR_STAIRS
+          when [Player, Coin] # player gets points, coins move
+            puts "#{actor.name} found the coins"
+            actor.score += POINTS_FOR_COINS
             target.set_position(@state.free_position)
-            @sounds['stairs'].play
+            @sounds['coin'].play
           end
         }
       )
@@ -170,14 +170,14 @@ module Danza
 
     def init_sprites
       @sprites = {}
-      %w(player zombie stairs).each do |name|
+      %w(player zombie coin).each do |name|
         @sprites[name] = load_sprite_by_name(name)
       end
     end
 
     def init_sounds
       @sounds = {}
-      %w(coin hit stairs).each do |name|
+      %w(coin hit powerup).each do |name|
         @sounds[name] = load_sound_by_name(name)
       end
     end
@@ -197,7 +197,7 @@ module Danza
       draw_tiles
       draw_players
       draw_monsters
-      draw_stairs
+      draw_coins
     end
 
     def color_tile?(x, y)
@@ -260,16 +260,16 @@ module Danza
       end
     end
 
-    def draw_stairs
-      sprite = @sprites['stairs'][@state.beat % 2]
-      @state.stairs.each do |stairs|
-        draw_sprite_on_tile(sprite, stairs.x, stairs.y)
+    def draw_coins
+      sprite = @sprites['coin'][@state.beat % 2]
+      @state.coins.each do |coins|
+        draw_sprite_on_tile(sprite, coins.x, coins.y)
       end
     end
 
     def draw_sprite_on_tile(img, x, y)
       cx = x * @tile_size + (@tile_size / 2 - img.width / 2)
-      cy = y * @tile_size + (@tile_size / 2 - img.height / 2)
+      cy = y * @tile_size + (@tile_size * 5 / 6 - img.height)
       img.draw(cx, cy, LAYER_SPRITES)
     end
 
@@ -398,7 +398,7 @@ module Danza
     end
   end
 
-  class Stairs < GameObject
+  class Coin < GameObject
   end
 
   class Player < GameObject
@@ -438,7 +438,7 @@ module Danza
     attr_reader :beat
     attr_reader :players
     attr_reader :monsters
-    attr_reader :stairs
+    attr_reader :coins
 
     def initialize(on_collision: -> {})
       @on_collision = on_collision
@@ -447,9 +447,9 @@ module Danza
       @beat = 0
       @players = []
       @monsters = []
-      @stairs = []
+      @coins = []
       @monsters = Array.new(3) { Monster.new(position: free_position) }
-      @stairs = Array.new(1) { Stairs.new(position: free_position) }
+      @coins = Array.new(1) { Coin.new(position: free_position) }
     end
 
     def remove_player(player)
@@ -475,7 +475,7 @@ module Danza
     end
 
     def game_objects
-      @players + @monsters + @stairs
+      @players + @monsters + @coins
     end
 
     def game_object_at(x, y)
@@ -512,7 +512,7 @@ module Danza
         beat: @beat,
         players: @players,
         monsters: @monsters,
-        stairs: @stairs,
+        coins: @coins,
       }.to_json(opts)
     end
   end
