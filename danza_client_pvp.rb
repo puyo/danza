@@ -15,6 +15,9 @@ loop do
   state = JSON.parse(line)
   player = state['players'].find { |p| p['name'] == name }
   target = state['players'].find { |p| p['name'] != name }
+  if target.nil? or player.nil?
+    next
+  end
   if player['x'] < target['x']
     direction = 'right'
   elsif player['x'] > target['x']

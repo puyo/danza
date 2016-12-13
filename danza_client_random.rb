@@ -17,9 +17,9 @@ loop do
   response = {
     direction: direction,
     beat: state['beat'],
-  }.to_json
+  }
   p response
-  s.puts response
+  s.puts response.to_json
 end
 
 s.close
